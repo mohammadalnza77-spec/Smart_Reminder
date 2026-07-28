@@ -1,6 +1,5 @@
 import streamlit as st
 from supabase import create_client, Client
-from datetime import datetime
 import pandas as pd
 
 # 1. الاتصال بـ Supabase من Secrets
@@ -70,27 +69,33 @@ else:
 
             if submit:
                 if title and emp_email:
-                    data = {
-                        "user_id": user_id,
-                        "title": title,
-                        "due_date": str(due_date),
-                        "employee_email": emp_email,
-                        "priority": priority,
-                        "status": 1
-                    }
-                    supabase.table("contracts").insert(data).execute()
-                    st.success("تمت إضافة العقد بنجاح إلى حسابك!")
+                    try:
+                        data = {
+                            "user_id": str(user_id),
+                            "title": str(title),
+                            "due_date": due_date.strftime("%Y-%m-%d"),
+                            "employee_email": str(emp_email),
+                            "priority": str(priority),
+                            "status": 1
+                        }
+                        supabase.table("contracts").insert([data]).execute()
+                        st.success("تمت إضافة العقد بنجاح إلى حسابك!")
+                    except Exception as err:
+                        st.error(f"تفاصيل الخطأ أثناء الحفظ: {err}")
                 else:
                     st.warning("يرجى تعبئة كافة الحقول المطلوبة.")
 
     # عرض العقود الخاصة بالمستخدم الحالي فقط
     with tab_view:
         st.subheader("قائمة عقودك المسجلة")
-        response = supabase.table("contracts").select("*").eq("user_id", user_id).execute()
-        contracts = response.data
+        try:
+            response = supabase.table("contracts").select("*").eq("user_id", user_id).execute()
+            contracts = response.data
 
-        if contracts:
-            df = pd.DataFrame(contracts)
-            st.dataframe(df[['title', 'due_date', 'employee_email', 'priority']], use_container_width=True)
-        else:
-            st.info("لا توجد عقود مسجلة في حسابك حالياً.")
+            if contracts:
+                df = pd.DataFrame(contracts)
+                st.dataframe(df[['title', 'due_date', 'employee_email', 'priority']], use_container_width=True)
+            else:
+                st.info("لا توجد عقود مسجلة في حسابك حالياً.")
+        except Exception as err:
+            st.error(f"فشل جلب البيانات: {err}")
