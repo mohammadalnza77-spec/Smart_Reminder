@@ -1,64 +1,56 @@
-import sqlite3
-import smtplib
 import os
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timedelta
+from supabase import create_client, Client
 
-def check_and_send_reminders():
-    # قراءة بيانات الإرسال من Secrets المحفوظة في GitHub
-    sender_email = os.environ.get("SENDER_EMAIL")
-    sender_password = os.environ.get("SENDER_PASSWORD")
+# جلب المفاتيح من متغيرات البيئة
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 
-    if not sender_email or not sender_password:
-        print("⚠️ لم يتم العثور على بيانات الإرسال في Secrets!")
-        return
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    conn = sqlite3.connect('contracts_db.db')
-    cursor = conn.cursor()
+def send_email(to_email, title, due_date):
+    subject = f"🚨 تنبيه: العقد '{title}' يستحق القرب من الانتهاء"
+    body = f"""
+    مرحباً،
     
-    # جلب العقود النشطة
-    cursor.execute("SELECT ContractID, Title, DueDate, EmployeeEmail, Priority FROM Contracts WHERE Status = 1")
-    contracts = cursor.fetchall()
+    نود تذكيرك بأن العقد/المهمة: ({title})
+    تاريخ انتهاء الصلاحية المحدد هو: {due_date}
+    
+    يرجى اتخاذ الإجراء اللازم.
+    """
+    
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+    
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+        server.quit()
+        print(f"تم إرسال إيميل إلى {to_email}")
+    except Exception as e:
+        print(f"فشل إرسال الإيميل: {e}")
 
+def check_contracts():
+    response = supabase.table("contracts").select("*").eq("status", 1).execute()
+    contracts = response.data
+    
     today = datetime.now().date()
-
-    for contract in contracts:
-        contract_id, title, due_date_str, email, priority = contract
-        try:
-            due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
-            days_left = (due_date - today).days
-
-            # إرسال تنبيه إذا كان المتبقي 7 أيام أو أقل
-            if 0 <= days_left <= 7:
-                subject = f"⏰ تنبيه تلقائي: قرب انتهاء عقد {title}"
-                body = f"""السلام عليكم ورحمة الله وبركاته،
-
-نود تذكيركم بأن العقد/المهمة: ({title})
-ينتهي خلال: {days_left} أيام (بتاريخ: {due_date_str}).
-مستوى الأهمية: {priority}.
-
-يرجى اتخاذ الإجراءات اللازمة.
-
-رسالة آليّة صَادرة عن نظام التذكير الذكي."""
-
-                msg = MIMEMultipart()
-                msg['From'] = sender_email
-                msg['To'] = email
-                msg['Subject'] = subject
-                msg.attach(MIMEText(body, 'plain', 'utf-8'))
-
-                server = smtplib.SMTP('smtp.gmail.com', 587)
-                server.starttls()
-                server.login(sender_email, sender_password)
-                server.send_message(msg)
-                server.quit()
-
-                print(f"✅ تم إرسال تنبيه تلقائي بنجاح للعقد: {title} إلى {email}")
-        except Exception as e:
-            print(f"❌ خطأ أثناء معالجة العقد {title}: {str(e)}")
-
-    conn.close()
+    
+    for c in contracts:
+        due_date = datetime.strptime(c['due_date'], "%Y-%m-%d").date()
+        # التنبيه إذا كان متبقي 3 أيام أو اليوم
+        if 0 <= (due_date - today).days <= 3:
+            send_email(c['employee_email'], c['title'], c['due_date'])
 
 if __name__ == "__main__":
-    check_and_send_reminders()
+    check_contracts()
