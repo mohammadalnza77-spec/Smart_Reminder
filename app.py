@@ -42,10 +42,14 @@ def init_db():
 init_db()
 
 # ---------------------------------------------------------
-# 2. دالة إرسال الإيميل عبر Gmail SMTP
+# 2. دالة إرسال الإيميل التلقائي عبر Gmail SMTP مع Secrets
 # ---------------------------------------------------------
-def send_email_smtp(sender_email, sender_password, receiver_email, subject, body):
+def send_email_smtp(receiver_email, subject, body):
     try:
+        # قراءة البريد وكلمة السر المحفوظة تلقائياً في Secrets
+        sender_email = st.secrets["SENDER_EMAIL"]
+        sender_password = st.secrets["SENDER_PASSWORD"]
+
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = receiver_email
@@ -158,7 +162,7 @@ elif choice == "إدارة وتعديل العقود (Read/Update/Delete)":
         st.info("لا توجد عقود مسجلة حالياً.")
 
 # ---------------------------------------------------------
-# 6. صفحة التذكير التلقائي وربط SMTP والذكاء الاصطناعي
+# 6. صفحة التذكير التلقائي المباشر (SMTP & AI)
 # ---------------------------------------------------------
 elif choice == "إرسال تنبيه بالذكاء الاصطناعي (SMTP & AI)":
     st.subheader("🤖 إرسال إيميل تذكيري مؤتمت")
@@ -186,33 +190,25 @@ elif choice == "إرسال تنبيه بالذكاء الاصطناعي (SMTP & 
         email_body = st.text_area("نص البريد الإلكتروني (يمكنك تعديله قبل الإرسال):", value=default_body, height=180)
         
         st.markdown("---")
-        st.markdown("### 🔑 بيانات خادم Gmail SMTP للإرسال")
-        sender_email = st.text_input("بريد المرسل (Gmail)", value="example@gmail.com")
-        app_password = st.text_input("كلمة مرور التطبيق (App Password)", type="password")
         
         if st.button("إرسال التنبيه البريدي الآن 📧"):
-            if not sender_email or not app_password:
-                st.warning("⚠️ يرجى إدخال بريد المرسل وكلمة مرور التطبيق لـ Gmail.")
+            success, msg = send_email_smtp(
+                selected_contract['EmployeeEmail'],
+                f"تذكير هام: قرب انتهاء عقد {selected_contract['Title']}",
+                email_body
+            )
+            if success:
+                st.success(msg)
+                conn = sqlite3.connect('contracts_db.db')
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO EmailLogs (ContractID, SentDate, EmailContent)
+                    VALUES (?, datetime('now'), ?)
+                ''', (contract_id, email_body))
+                conn.commit()
+                conn.close()
             else:
-                success, msg = send_email_smtp(
-                    sender_email,
-                    app_password,
-                    selected_contract['EmployeeEmail'],
-                    f"تذكير هام: قرب انتهاء عقد {selected_contract['Title']}",
-                    email_body
-                )
-                if success:
-                    st.success(msg)
-                    conn = sqlite3.connect('contracts_db.db')
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        INSERT INTO EmailLogs (ContractID, SentDate, EmailContent)
-                        VALUES (?, datetime('now'), ?)
-                    ''', (contract_id, email_body))
-                    conn.commit()
-                    conn.close()
-                else:
-                    st.error(msg)
+                st.error(msg)
     else:
         st.info("لا توجد عقود نشطة لإرسال تنبيهات لها.")
 
